@@ -202,18 +202,19 @@ class Transformer(nn.Module):
         'To facilitate the residual connections, \
          the dimensions of all module outputs shall be the same.'
 
-        if tgt_emb_prj_weight_sharing:
-            # Share the weight matrix between target word embedding & the final logit dense layer
-            self.tgt_word_prj.weight = self.decoder.tgt_word_emb.weight
-            self.x_logit_scale = (d_model ** -0.5)
-        else:
-            self.x_logit_scale = 1.
-
-        if emb_src_tgt_weight_sharing:
-            # Share the weight matrix between source & target word embeddings
-            assert n_src_vocab_embeddings == n_tgt_vocab_embeddings, \
-            "To share word embedding table, the vocabulary size of src/tgt shall be the same."
-            self.encoder.src_word_emb.weight = self.decoder.tgt_word_emb.weight
+        if n_src_vocab_embeddings != None and n_tgt_vocab_embeddings != None:
+            if tgt_emb_prj_weight_sharing:
+                # Share the weight matrix between target word embedding & the final logit dense layer
+                self.tgt_word_prj.weight = self.decoder.tgt_word_emb.weight
+                self.x_logit_scale = (d_model ** -0.5)
+            else:
+                self.x_logit_scale = 1.
+    
+            if emb_src_tgt_weight_sharing:
+                # Share the weight matrix between source & target word embeddings
+                assert n_src_vocab_embeddings == n_tgt_vocab_embeddings, \
+                "To share word embedding table, the vocabulary size of src/tgt shall be the same."
+                self.encoder.src_word_emb.weight = self.decoder.tgt_word_emb.weight
 
     def forward(self, src_seq, src_pos, tgt_seq, tgt_pos):
 
