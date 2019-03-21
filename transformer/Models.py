@@ -53,19 +53,23 @@ def get_subsequent_mask(seq):
 
 class Encoder(nn.Module):
     ''' A encoder model with self attention mechanism. '''
-
     def __init__(
-            self,
-            n_src_vocab, len_max_seq, d_word_vec,
-            n_layers, n_head, d_k, d_v,
-            d_model, d_inner, dropout=0.1):
+        self,
+        len_max_seq, d_word_vec, n_src_vocab_embeddings=None,
+        n_layers, n_head, d_k, d_v,
+        d_model, d_inner, dropout=0.1
+    ):
+        """
+        n_src_vocab_embeddings (int): Optional vocab size for src embedding layer, default: `None`. If `None`, assumes input is already embedded into dimension `d_word_vec`.
+        """
 
         super().__init__()
 
         n_position = len_max_seq + 1
 
-        self.src_word_emb = nn.Embedding(
-            n_src_vocab, d_word_vec, padding_idx=Constants.PAD)
+        if n_src_vocab_embeddings != None:
+            self.src_word_emb = nn.Embedding(
+                n_src_vocab_embeddings, d_word_vec, padding_idx=Constants.PAD)
 
         self.position_enc = nn.Embedding.from_pretrained(
             get_sinusoid_encoding_table(n_position, d_word_vec, padding_idx=0),
@@ -84,7 +88,10 @@ class Encoder(nn.Module):
         non_pad_mask = get_non_pad_mask(src_seq)
 
         # -- Forward
-        enc_output = self.src_word_emb(src_seq) + self.position_enc(src_pos)
+        enc_output = src_seq
+        if hasattr(self, 'src_word_emb'):
+            enc_output = self.src_word_emb(enc_output)
+        enc_output = enc_output + self.position_enc(src_pos)
 
         for enc_layer in self.layer_stack:
             enc_output, enc_slf_attn = enc_layer(
@@ -100,18 +107,22 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
     ''' A decoder model with self attention mechanism. '''
-
     def __init__(
-            self,
-            n_tgt_vocab, len_max_seq, d_word_vec,
-            n_layers, n_head, d_k, d_v,
-            d_model, d_inner, dropout=0.1):
+        self,
+        len_max_seq, d_word_vec, n_tgt_vocab_embeddings=None,
+        n_layers, n_head, d_k, d_v,
+        d_model, d_inner, dropout=0.1
+    ):
+        """
+        n_tgt_vocab_embeddings (int): Optional vocab size for tgt embedding layer, default: `None`. If `None`, assumes input is already embedded into dimension `d_word_vec`.
+        """
 
         super().__init__()
         n_position = len_max_seq + 1
 
-        self.tgt_word_emb = nn.Embedding(
-            n_tgt_vocab, d_word_vec, padding_idx=Constants.PAD)
+        if n_tgt_vocab_embeddings != None:
+            self.tgt_word_emb = nn.Embedding(
+                n_tgt_vocab_embeddings, d_word_vec, padding_idx=Constants.PAD)
 
         self.position_enc = nn.Embedding.from_pretrained(
             get_sinusoid_encoding_table(n_position, d_word_vec, padding_idx=0),
@@ -135,7 +146,10 @@ class Decoder(nn.Module):
         dec_enc_attn_mask = get_attn_key_pad_mask(seq_k=src_seq, seq_q=tgt_seq)
 
         # -- Forward
-        dec_output = self.tgt_word_emb(tgt_seq) + self.position_enc(tgt_pos)
+        dec_output = tgt_seq
+        if hasattr(self, 'tgt_word_emb'):
+            dec_output = self.tgt_word_emb(dec_output)
+        dec_output = dec_output + self.position_enc(tgt_pos)
 
         for dec_layer in self.layer_stack:
             dec_output, dec_slf_attn, dec_enc_attn = dec_layer(
@@ -157,7 +171,8 @@ class Transformer(nn.Module):
 
     def __init__(
             self,
-            n_src_vocab, n_tgt_vocab, len_max_seq,
+            len_max_seq,
+            n_src_vocab_embeddings=None, n_tgt_vocab_embeddings=None,
             d_word_vec=512, d_model=512, d_inner=2048,
             n_layers=6, n_head=8, d_k=64, d_v=64, dropout=0.1,
             tgt_emb_prj_weight_sharing=True,
@@ -166,18 +181,18 @@ class Transformer(nn.Module):
         super().__init__()
 
         self.encoder = Encoder(
-            n_src_vocab=n_src_vocab, len_max_seq=len_max_seq,
+            n_src_vocab_embeddings=n_src_vocab_embeddings, len_max_seq=len_max_seq,
             d_word_vec=d_word_vec, d_model=d_model, d_inner=d_inner,
             n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v,
             dropout=dropout)
 
         self.decoder = Decoder(
-            n_tgt_vocab=n_tgt_vocab, len_max_seq=len_max_seq,
+            n_tgt_vocab_embeddings=n_tgt_vocab_embeddings, len_max_seq=len_max_seq,
             d_word_vec=d_word_vec, d_model=d_model, d_inner=d_inner,
             n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v,
             dropout=dropout)
 
-        self.tgt_word_prj = nn.Linear(d_model, n_tgt_vocab, bias=False)
+        self.tgt_word_prj = nn.Linear(d_model, n_tgt_vocab_embeddings, bias=False)
         nn.init.xavier_normal_(self.tgt_word_prj.weight)
 
         assert d_model == d_word_vec, \
@@ -193,7 +208,7 @@ class Transformer(nn.Module):
 
         if emb_src_tgt_weight_sharing:
             # Share the weight matrix between source & target word embeddings
-            assert n_src_vocab == n_tgt_vocab, \
+            assert n_src_vocab_embeddings == n_tgt_vocab_embeddings, \
             "To share word embedding table, the vocabulary size of src/tgt shall be the same."
             self.encoder.src_word_emb.weight = self.decoder.tgt_word_emb.weight
 
