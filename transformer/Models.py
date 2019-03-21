@@ -194,8 +194,9 @@ class Transformer(nn.Module):
             n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v,
             dropout=dropout)
 
-        self.tgt_word_prj = nn.Linear(d_model, n_tgt_vocab_embeddings, bias=False)
-        nn.init.xavier_normal_(self.tgt_word_prj.weight)
+        if n_tgt_vocab_embeddings != None:
+            self.tgt_word_prj = nn.Linear(d_model, n_tgt_vocab_embeddings, bias=False)
+            nn.init.xavier_normal_(self.tgt_word_prj.weight)
 
         assert d_model == d_word_vec, \
         'To facilitate the residual connections, \
@@ -220,6 +221,9 @@ class Transformer(nn.Module):
 
         enc_output, *_ = self.encoder(src_seq, src_pos)
         dec_output, *_ = self.decoder(tgt_seq, tgt_pos, src_seq, enc_output)
-        seq_logit = self.tgt_word_prj(dec_output) * self.x_logit_scale
+        if hasattr(self, 'tgt_word_prj'):
+            seq_logit = self.tgt_word_prj(dec_output) * self.x_logit_scale
+        else:
+            seq_logit = dec_output
 
         return seq_logit.view(-1, seq_logit.size(2))
