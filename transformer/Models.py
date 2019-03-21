@@ -55,9 +55,10 @@ class Encoder(nn.Module):
     ''' A encoder model with self attention mechanism. '''
     def __init__(
         self,
-        len_max_seq, d_word_vec, n_src_vocab_embeddings=None,
+        len_max_seq, d_word_vec,
         n_layers, n_head, d_k, d_v,
-        d_model, d_inner, dropout=0.1
+        d_model, d_inner, dropout=0.1,
+        n_src_vocab_embeddings=None,
     ):
         """
         n_src_vocab_embeddings (int): Optional vocab size for src embedding layer, default: `None`. If `None`, assumes input is already embedded into dimension `d_word_vec`.
@@ -109,9 +110,10 @@ class Decoder(nn.Module):
     ''' A decoder model with self attention mechanism. '''
     def __init__(
         self,
-        len_max_seq, d_word_vec, n_tgt_vocab_embeddings=None,
+        len_max_seq, d_word_vec,
         n_layers, n_head, d_k, d_v,
-        d_model, d_inner, dropout=0.1
+        d_model, d_inner, dropout=0.1,
+        n_tgt_vocab_embeddings=None,
     ):
         """
         n_tgt_vocab_embeddings (int): Optional vocab size for tgt embedding layer, default: `None`. If `None`, assumes input is already embedded into dimension `d_word_vec`.
