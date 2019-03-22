@@ -85,6 +85,7 @@ class Encoder(nn.Module):
         enc_slf_attn_list = []
 
         # -- Prepare masks
+        print(src_seq.shape)
         slf_attn_mask = get_attn_key_pad_mask(seq_k=src_seq, seq_q=src_seq)
         non_pad_mask = get_non_pad_mask(src_seq)
 
