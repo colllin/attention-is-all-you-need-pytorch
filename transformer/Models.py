@@ -33,6 +33,7 @@ def get_sinusoid_encoding_table(n_position, d_hid, padding_idx=None):
 
 def get_attn_key_pad_mask(seq_k, seq_q):
     ''' For masking out the padding part of key sequence. '''
+    assert seq_k.dim() == 2
 
     # Expand to fit the shape of key query attention matrix.
     len_q = seq_q.size(1)
@@ -44,7 +45,7 @@ def get_attn_key_pad_mask(seq_k, seq_q):
 def get_subsequent_mask(seq):
     ''' For masking out the subsequent info. '''
 
-    sz_b, len_s = seq.size()
+    sz_b, len_s, *_ = seq.size()
     subsequent_mask = torch.triu(
         torch.ones((len_s, len_s), device=seq.device, dtype=torch.uint8), diagonal=1)
     subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)  # b x ls x ls
@@ -80,22 +81,25 @@ class Encoder(nn.Module):
             EncoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout)
             for _ in range(n_layers)])
 
-    def forward(self, src_seq, src_pos, return_attns=False):
+    def forward(self, src_seq, src_pos, src_pad_mask, return_attns=False):
 
         enc_slf_attn_list = []
 
-        # -- Prepare masks
-        print(src_seq.shape)
-        slf_attn_mask = get_attn_key_pad_mask(seq_k=src_seq, seq_q=src_seq)
-        non_pad_mask = get_non_pad_mask(src_seq)
-
-        # -- Forward
+        # -- Embed & combine src_seq and src_pos
         enc_output = src_seq
         if hasattr(self, 'src_word_emb'):
             enc_output = self.src_word_emb(enc_output)
         enc_output = enc_output + self.position_enc(src_pos)
 
+        # -- Prepare masks
+        # slf_attn_mask = get_attn_key_pad_mask(seq_k=src_seq, seq_q=src_seq)
+        # non_pad_mask = get_non_pad_mask(src_seq)
+        slf_attn_mask = src_pad_mask.unsqueeze(1).expand(-1, src_seq.size(1), -1)
+        non_pad_mask = (1 - src_pad_mask).unsqueeze(-1).float()
+
+        # -- Forward
         for enc_layer in self.layer_stack:
+            print(enc_output.shape, non_pad_mask.shape, slf_attn_mask.shape)
             enc_output, enc_slf_attn = enc_layer(
                 enc_output,
                 non_pad_mask=non_pad_mask,
@@ -135,18 +139,21 @@ class Decoder(nn.Module):
             DecoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout)
             for _ in range(n_layers)])
 
-    def forward(self, tgt_seq, tgt_pos, src_seq, enc_output, return_attns=False):
+    def forward(self, tgt_seq, tgt_pos, enc_output, tgt_pad_mask, src_pad_mask, return_attns=False):
 
         dec_slf_attn_list, dec_enc_attn_list = [], []
 
         # -- Prepare masks
-        non_pad_mask = get_non_pad_mask(tgt_seq)
+        # non_pad_mask = get_non_pad_mask(tgt_seq)
+        non_pad_mask = (1 - tgt_pad_mask).unsqueeze(-1).float()
 
         slf_attn_mask_subseq = get_subsequent_mask(tgt_seq)
-        slf_attn_mask_keypad = get_attn_key_pad_mask(seq_k=tgt_seq, seq_q=tgt_seq)
+        # slf_attn_mask_keypad = get_attn_key_pad_mask(seq_k=tgt_seq, seq_q=tgt_seq)
+        slf_attn_mask_keypad = tgt_pad_mask.unsqueeze(1).expand(-1, tgt_seq.size(1), -1)
         slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
 
-        dec_enc_attn_mask = get_attn_key_pad_mask(seq_k=src_seq, seq_q=tgt_seq)
+        # dec_enc_attn_mask = get_attn_key_pad_mask(seq_k=src_seq, seq_q=tgt_seq)
+        dec_enc_attn_mask = src_pad_mask.unsqueeze(1).expand(-1, tgt_seq.size(1), -1)
 
         # -- Forward
         dec_output = tgt_seq
@@ -217,12 +224,17 @@ class Transformer(nn.Module):
                 "To share word embedding table, the vocabulary size of src/tgt shall be the same."
                 self.encoder.src_word_emb.weight = self.decoder.tgt_word_emb.weight
 
-    def forward(self, src_seq, src_pos, tgt_seq, tgt_pos):
+    def forward(self, src_seq, src_pos, tgt_seq, tgt_pos, src_pad_mask=None, tgt_pad_mask=None):
 
         tgt_seq, tgt_pos = tgt_seq[:, :-1], tgt_pos[:, :-1]
+        
+        if src_pad_mask is None:
+            src_pad_mask = 1 - get_non_pad_mask(src_seq).squeeze().byte()
+        if tgt_pad_mask is None:
+            tgt_pad_mask = 1 - get_non_pad_mask(tgt_seq).squeeze().byte()
 
-        enc_output, *_ = self.encoder(src_seq, src_pos)
-        dec_output, *_ = self.decoder(tgt_seq, tgt_pos, src_seq, enc_output)
+        enc_output, *_ = self.encoder(src_seq, src_pos, src_pad_mask=src_pad_mask)
+        dec_output, *_ = self.decoder(tgt_seq, tgt_pos, enc_output, src_pad_mask=src_pad_mask, tgt_pad_mask=tgt_pad_mask)
         if hasattr(self, 'tgt_word_prj'):
             seq_logit = self.tgt_word_prj(dec_output) * self.x_logit_scale
         else:
